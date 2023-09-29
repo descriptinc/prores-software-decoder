@@ -5,3 +5,7 @@ Hosted demo of our initial ProRes Software Decoder so we can have a sample of pe
 
  1. Open [the demo page](https://descriptinc.github.io/prores-software-decoder/)
  2. Report the Frames Per Second or Real-time multiple.
+
+
+## Credits
+ - libav.js doing the heavy lifting.
