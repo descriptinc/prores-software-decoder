@@ -16,7 +16,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>ProRes Software Decoder (Swscale)</title>
+    <title>ProRes Software Decoder (Using Swscale)</title>
   </head>
   <body>
     <script type="text/javascript">
@@ -97,10 +97,12 @@
               if (picker.files.length > 0) res(picker.files[0]);
             };
 
-            // fetchFile("videos/house-of-the-dragon-4k-3840x2160.mov").then(
-            fetchFile("videos/house-of-the-dragon-320x240.mov").then((blob) => {
-              res(blob);
-            });
+            fetchFile("videos/house-of-the-dragon-4k-3840x2160.mov").then(
+              (blob) => {
+                // fetchFile("videos/house-of-the-dragon-320x240.mov").then((blob) => {
+                res(blob);
+              }
+            );
           });
           main.innerHTML = "Loading...";
 

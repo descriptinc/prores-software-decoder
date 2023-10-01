@@ -16,7 +16,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>ProRes Software Decoder (Pixel Format Filter)</title>
+    <title>ProRes Software Decoder (Using Filters)</title>
   </head>
   <body>
     <script type="text/javascript">
@@ -97,11 +97,16 @@
               if (picker.files.length > 0) res(picker.files[0]);
             };
 
-            fetchFile("videos/house-of-the-dragon-4k.mov").then((blob) => {
-              res(blob);
-            });
+            fetchFile("videos/house-of-the-dragon-4k-3840x2160.mov").then(
+              (blob) => {
+                // fetchFile("videos/house-of-the-dragon-320x240.mov").then((blob) => {
+                res(blob);
+              }
+            );
           });
           main.innerHTML = "Loading...";
+
+          let frameCounter = 0;
 
           // Initial read
           await libav.mkreadaheadfile("input", file);
@@ -153,12 +158,14 @@
           seeker.type = "range";
           seeker.min = 0;
           seeker.max = Math.ceil(videoStream.duration * 10);
+          seeker.style.visibility = "hidden";
           main.appendChild(seeker);
           let seekerWakeup = null;
 
           // Prepare to seek
           let seeked = false;
           seeker.oninput = async () => {
+            let frameCounter = 0;
             const ts =
               ((seeker.value / 10) * videoStream.time_base_den) /
               videoStream.time_base_num;
@@ -240,6 +247,7 @@
               // Display any frames here
               if (renderChk.checked) {
                 for (let frame of frames) {
+                  frameCounter++;
                   const pts = frame.pts;
 
                   // Maybe initialize the scaler
@@ -306,13 +314,14 @@
                   console.timeEnd("drawImage");
 
                   // And show it
-                  const t =
+                  const start =
                     (pts * videoStream.time_base_num) /
                     videoStream.time_base_den;
                   //   durationBox.innerText = `${t.toFixed(2)}/${
                   //     videoStream.duration
                   //   }`;
-                  seeker.value = t * 10;
+                  console.log(`start = ${start}`);
+                  seeker.value = start * 10;
                 }
               }
 
@@ -327,13 +336,41 @@
 
               if (stats.length) {
                 const first = stats[0];
+                const secondLast =
+                  stats[stats.length > 1 ? stats.length - 2 : 0];
                 const last = stats[stats.length - 1];
                 const fps =
                   stats.map((x) => x.frames).reduce((x, y) => x + y, 0) /
                   (last.end - first.start);
-                const sourceFPS =
-                  ((last.pts - first.pts) * videoStream.time_base_num) /
+
+                const frameTime =
+                  (last.pts * videoStream.time_base_num) /
                   videoStream.time_base_den;
+                const previousFrameTime =
+                  (secondLast.pts * videoStream.time_base_num) /
+                  videoStream.time_base_den;
+
+                const framesPlayed = frameCounter;
+
+                const frameDuration = frameTime - previousFrameTime;
+                const timePlayed = frameTime + frameDuration;
+                const sourceFPS = framesPlayed / timePlayed;
+
+                console.log(
+                  `frameTime = ${frameTime.toFixed(
+                    2
+                  )}, previousFrameTime = ${previousFrameTime.toFixed(
+                    2
+                  )}, frameDuration = ${frameDuration.toFixed(
+                    2
+                  )} timePlayed = ${timePlayed.toFixed(
+                    2
+                  )}, framesPlayed = ${framesPlayed.toFixed(
+                    2
+                  )}, sourceFPS = ${sourceFPS.toFixed(2)}`
+                );
+
+                // Duration of track in seconds, frame count
                 const xrt =
                   ((last.pts - first.pts) * videoStream.time_base_num) /
                   videoStream.time_base_den /
@@ -341,9 +378,7 @@
 
                 statsBox.innerText = `
                 ${width} x ${height} @ ${sourceFPS.toFixed(2)} FPS
-                ${fps.toFixed(2)}  Frames Per Second\n${xrt.toFixed(
-                  2
-                )}x Real-time`;
+                ${fps.toFixed(2)} FPS Playback \n${xrt.toFixed(2)}x Real-time`;
               }
             }
 
@@ -365,7 +400,114 @@
         } catch (ex) {
           alert(ex + "");
         }
-      })();
+
+        var filter_graph;
+        var buffersink_ctx, buffersrc_ctx;
+
+        // Copyright 2023 Descript, Inc
+      async function init_filters(
+        libav,
+        filters_descr,
+        sample_fmt,
+        channel_layout,
+        frame_size
+      ) {
+        const abuffer = await libav.avfilter_get_by_name("abuffer");
+        const abuffersink = await libav.avfilter_get_by_name("abuffersink");
+        const outputs = await libav.avfilter_inout_alloc();
+        const inputs = await libav.avfilter_inout_alloc();
+        const filter_graph = await libav.avfilter_graph_alloc();
+
+        if (!outputs || !inputs || !filter_graph) {
+          throw new Error();
+        }
+
+        const buffersrc_ctx = await libav.avfilter_graph_create_filter_js(
+          abuffersrc,
+          "in",
+          "time_base=1/48000:sample_rate=48000:sample_fmt=" +
+            sample_fmt +
+            ":channel_layout=" +
+            channel_layout,
+          null,
+          filter_graph
+        );
+        const buffersink_ctx = await libav.avfilter_graph_create_filter_js(
+          abuffersink,
+          "out",
+          null,
+          null,
+          filter_graph
+        );
+        const int32s = await libav.ff_malloc_int32_list([sample_fmt, -1, 48000, -1]);
+        const int64s = await libav.ff_malloc_int64_list([channel_layout, -1]);
+        const strdupIn = await libav.av_strdup("in");
+        const strdupOut = await libav.av_strdup("out");
+
+        if (buffersrc_ctx === 0) throw new Error("Cannot create audio buffer source");
+        if (buffersink_ctx === 0) throw new Error("Cannot create audio buffer sink");
+        if (strdupIn === 0 || strdupOut === 0) throw new Error("Failed to strdup");
+
+        const sampleFmts = await libav.av_opt_set_int_list_js(
+          buffersink_ctx,
+          "sample_fmts",
+          4,
+          int32s,
+          -1,
+          libav.AV_OPT_SEARCH_CHILDREN
+        );
+        const channel_layouts = await libav.av_opt_set_int_list_js(
+          buffersink_ctx,
+          "channel_layouts",
+          8,
+          int64s,
+          -1,
+          libav.AV_OPT_SEARCH_CHILDREN
+        );
+        const sample_rates = await libav.av_opt_set_int_list_js(
+          buffersink_ctx,
+          "sample_rates",
+          4,
+          int32s + 8,
+          -1,
+          libav.AV_OPT_SEARCH_CHILDREN
+        );
+
+        await libav.AVFilterInOut_name_s(outputs, strdupIn);
+        await libav.AVFilterInOut_filter_ctx_s(outputs, buffersrc_ctx);
+        await libav.AVFilterInOut_pad_idx_s(outputs, 0);
+        await libav.AVFilterInOut_next_s(outputs, 0);
+        await libav.AVFilterInOut_name_s(inputs, strdupOut);
+        await libav.AVFilterInOut_filter_ctx_s(inputs, buffersink_ctx);
+        await libav.AVFilterInOut_pad_idx_s(inputs, 0);
+        await libav.AVFilterInOut_next_s(inputs, 0);
+
+        if (sampleFmts < 0 || channel_layouts < 0 || sample_rates < 0)
+          throw new Error("Cannot set audio buffer sink properties");
+
+        const parseResult = await libav.avfilter_graph_parse(
+          filter_graph,
+          filters_descr,
+          inputs,
+          outputs,
+          0
+        );
+
+        if (parseResult < 0) {
+          throw new Error("Failed to initialize filters");
+        }
+
+        await libav.av_buffersink_set_frame_size(buffersink_ctx, frame_size);
+
+        const graphConfigResult = await libav.avfilter_graph_config(filter_graph, 0);
+
+        if (graphConfigResult < 0) {
+          throw new Error("Failed to configure filtergraph");
+        }
+
+        await libav.free(int32s);
+        await libav.free(int64s);
+      }
     </script>
   </body>
 </html>
