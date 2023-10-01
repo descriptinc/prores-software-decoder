@@ -97,11 +97,10 @@
               if (picker.files.length > 0) res(picker.files[0]);
             };
 
-            fetchFile("videos/house-of-the-dragon-4k-3840x2160.mov").then(
-              (blob) => {
-                res(blob);
-              }
-            );
+            // fetchFile("videos/house-of-the-dragon-4k-3840x2160.mov").then(
+            fetchFile("videos/house-of-the-dragon-320x240.mov").then((blob) => {
+              res(blob);
+            });
           });
           main.innerHTML = "Loading...";
 
@@ -157,12 +156,14 @@
           seeker.type = "range";
           seeker.min = 0;
           seeker.max = Math.ceil(videoStream.duration * 10);
+          seeker.style.visibility = "hidden";
           main.appendChild(seeker);
           let seekerWakeup = null;
 
           // Prepare to seek
           let seeked = false;
           seeker.oninput = async () => {
+            let frameCounter = 0;
             const ts =
               ((seeker.value / 10) * videoStream.time_base_den) /
               videoStream.time_base_num;
@@ -375,9 +376,7 @@
 
                 statsBox.innerText = `
                 ${width} x ${height} @ ${sourceFPS.toFixed(2)} FPS
-                ${fps.toFixed(2)}  Frames Per Second\n${xrt.toFixed(
-                  2
-                )}x Real-time`;
+                ${fps.toFixed(2)} FPS Playback \n${xrt.toFixed(2)}x Real-time`;
               }
             }
 
