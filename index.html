@@ -16,7 +16,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>ProRes Software Decoder</title>
+    <title>ProRes Software Decoder (Swscale)</title>
   </head>
   <body>
     <script type="text/javascript">
@@ -97,11 +97,15 @@
               if (picker.files.length > 0) res(picker.files[0]);
             };
 
-            fetchFile("videos/house-of-the-dragon-4k.mov").then((blob) => {
-              res(blob);
-            });
+            fetchFile("videos/house-of-the-dragon-4k-3840x2160.mov").then(
+              (blob) => {
+                res(blob);
+              }
+            );
           });
           main.innerHTML = "Loading...";
+
+          let frameCounter = 0;
 
           // Initial read
           await libav.mkreadaheadfile("input", file);
@@ -197,15 +201,18 @@
 
           // And read
           while (true) {
+            console.time("loop");
             // Read some packets
+            console.time("ff_read_multi");
             const [res, packets] = await libav.ff_read_multi(
               fmt_ctx,
               pkt,
               null,
               {
-                limit: 1024 * 1024,
+                limit: 1,
               }
             );
+            console.timeEnd("ff_read_multi");
 
             /* And decode them. We decode them one-by-one for stats
              * purposes, but obviously would do several at a time for
@@ -237,6 +244,7 @@
               // Display any frames here
               if (renderChk.checked) {
                 for (let frame of frames) {
+                  frameCounter++;
                   const pts = frame.pts;
 
                   // Maybe initialize the scaler
@@ -266,12 +274,18 @@
                   }
 
                   // Scale
+                  console.time("ff_copyin_frame");
                   await libav.ff_copyin_frame(sinFrame, frame);
+                  console.timeEnd("ff_copyin_frame");
+                  console.time("sws_scale_frame");
                   await libav.sws_scale_frame(sctx, soutFrame, sinFrame);
+                  console.timeEnd("sws_scale_frame");
+                  console.time("ff_copyout_frame");
                   frame = await libav.ff_copyout_frame(soutFrame);
+                  console.timeEnd("ff_copyout_frame");
 
                   // Convert from libav planes to ImageData
-
+                  console.time("convert libav planes to ImageData");
                   {
                     let idx = 0;
                     const plane = frame.data[0];
@@ -281,21 +295,30 @@
                     }
                   }
                   id.data.set(frame.data[0]);
+                  console.timeEnd("convert libav planes to ImageData");
 
                   // Display it
+                  console.time("createImageBitmap");
                   const ib = await createImageBitmap(id);
+                  console.timeEnd("createImageBitmap");
 
+                  console.time("clearRect");
                   cctx.clearRect(0, 0, width, height);
+                  console.timeEnd("clearRect");
+
+                  console.time("drawImage");
                   cctx.drawImage(ib, 0, 0, width, height);
+                  console.timeEnd("drawImage");
 
                   // And show it
-                  const t =
+                  const start =
                     (pts * videoStream.time_base_num) /
                     videoStream.time_base_den;
                   //   durationBox.innerText = `${t.toFixed(2)}/${
                   //     videoStream.duration
                   //   }`;
-                  seeker.value = t * 10;
+                  console.log(`start = ${start}`);
+                  seeker.value = start * 10;
                 }
               }
 
@@ -310,20 +333,56 @@
 
               if (stats.length) {
                 const first = stats[0];
+                const secondLast =
+                  stats[stats.length > 1 ? stats.length - 2 : 0];
                 const last = stats[stats.length - 1];
                 const fps =
                   stats.map((x) => x.frames).reduce((x, y) => x + y, 0) /
                   (last.end - first.start);
+
+                const frameTime =
+                  (last.pts * videoStream.time_base_num) /
+                  videoStream.time_base_den;
+                const previousFrameTime =
+                  (secondLast.pts * videoStream.time_base_num) /
+                  videoStream.time_base_den;
+
+                const framesPlayed = frameCounter;
+
+                const frameDuration = frameTime - previousFrameTime;
+                const timePlayed = frameTime + frameDuration;
+                const sourceFPS = framesPlayed / timePlayed;
+
+                console.log(
+                  `frameTime = ${frameTime.toFixed(
+                    2
+                  )}, previousFrameTime = ${previousFrameTime.toFixed(
+                    2
+                  )}, frameDuration = ${frameDuration.toFixed(
+                    2
+                  )} timePlayed = ${timePlayed.toFixed(
+                    2
+                  )}, framesPlayed = ${framesPlayed.toFixed(
+                    2
+                  )}, sourceFPS = ${sourceFPS.toFixed(2)}`
+                );
+
+                // Duration of track in seconds, frame count
                 const xrt =
                   ((last.pts - first.pts) * videoStream.time_base_num) /
                   videoStream.time_base_den /
                   (last.end - first.start);
 
-                statsBox.innerText = `${fps.toFixed(
+                statsBox.innerText = `
+                ${width} x ${height} @ ${sourceFPS.toFixed(2)} FPS
+                ${fps.toFixed(2)}  Frames Per Second\n${xrt.toFixed(
                   2
-                )}  Frames Per Second\n${xrt.toFixed(2)}x Real-time`;
+                )}x Real-time`;
               }
             }
+
+            console.timeEnd("loop");
+            console.log("\n\n\n\n\n");
 
             if (seeked) {
               seeked = false;
