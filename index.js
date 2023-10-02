@@ -159,6 +159,11 @@ async function main() {
         buffersink_ctx = _buffersink_ctx;
       }
 
+      const hasAlpha = true;
+      const targetPixFormat = hasAlpha
+        ? libav.AV_PIX_FMT_RGBA
+        : libav.AV_PIX_FMT_RGB24;
+
       // And read
       while (true) {
         console.log(
@@ -243,7 +248,7 @@ async function main() {
                   inF,
                   width * resolutionMultipler,
                   height * resolutionMultipler,
-                  libav.AV_PIX_FMT_RGBA,
+                  targetPixFormat,
                   2,
                   0,
                   0,
@@ -357,6 +362,9 @@ async function main() {
 
             statsBox.innerText = `
                   ${width} x ${height} @ ${sourceFPS.toFixed(2)} FPS
+                  ${Math.floor(width * resolutionMultipler)} x ${Math.floor(
+              height * resolutionMultipler
+            )} Playback Resolution
                   ${fps.toFixed(2)} FPS Playback \n${xrt.toFixed(
               2
             )}x Real-time`;
