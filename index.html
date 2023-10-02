@@ -17,6 +17,17 @@
   <head>
     <meta charset="utf-8" />
     <title>ProRes Software Decoder (Using Swscale)</title>
+    <style>
+      body {
+        margin: 0px;
+        background-color: black;
+        color: white;
+      }
+      canvas {
+        background: repeating-conic-gradient(#808080 0% 25%, white 0% 50%) 50% /
+          40px 40px;
+      }
+    </style>
   </head>
   <body>
     <script type="text/javascript">
@@ -128,10 +139,11 @@
           const videoStream = streams[videoIdx];
 
           const codecparPtr = videoStream.codecpar;
-          const width = await libav.AVCodecParameters_width(codecparPtr);
-          const height = await libav.AVCodecParameters_height(codecparPtr);
-          console.log(`${width}x${height}`);
-          console.log(videoStream);
+          const width = (await libav.AVCodecParameters_width(codecparPtr)) / 4;
+          const height =
+            (await libav.AVCodecParameters_height(codecparPtr)) / 4;
+          //   console.log(`${width}x${height}`);
+          //   console.log(videoStream);
 
           // Set up the "player"
           main.innerHTML = "";
@@ -139,6 +151,7 @@
           //   durationBox.innerHTML = `0/${videoStream.duration}`;
           //   main.appendChild(durationBox);
           const statsBox = dce("div");
+
           statsBox.innerHTML = "&nbsp;";
           main.appendChild(statsBox);
           const renderChk = dce("input");
@@ -184,9 +197,16 @@
           };
 
           // Initialize the decoder
-          const [, c, pkt, frame] = await libav.ff_init_decoder(
+          const [, codecContextPtr, pkt, frame] = await initDecoder(
+            libav,
             videoStream.codec_id,
             videoStream.codecpar
+          );
+
+          console.log(
+            `libav.AVCodecContext_lowres(codecContextPtr = ${await libav.AVCodecContext_lowres(
+              codecContextPtr
+            )}`
           );
 
           // Prepare to initialize the scaler (for pixel format)
@@ -236,13 +256,15 @@
               while (stats[0].start < early) stats.shift();
 
               // Decode it
+              console.time("ff_decode_multi");
               const frames = await libav.ff_decode_multi(
-                c,
+                codecContextPtr,
                 pkt,
                 frame,
                 [vPacket],
                 res === libav.AVERROR_EOF && vIdx === vPackets.length - 1
               );
+              console.timeEnd("ff_decode_multi");
 
               // Display any frames here
               if (renderChk.checked) {
@@ -273,7 +295,7 @@
                       0,
                       0
                     );
-                    console.log("sws_getContext");
+                    // console.log("sws_getContext");
                   }
 
                   // Scale
@@ -289,6 +311,7 @@
 
                   // Convert from libav planes to ImageData
                   console.time("convert libav planes to ImageData");
+                  console.time("convert loop");
                   {
                     let idx = 0;
                     const plane = frame.data[0];
@@ -297,7 +320,10 @@
                       idx += frame.width * 4;
                     }
                   }
+                  console.timeEnd("convert loop");
+                  console.time("id.data.set");
                   id.data.set(frame.data[0]);
+                  console.timeEnd("id.data.set");
                   console.timeEnd("convert libav planes to ImageData");
 
                   // Display it
@@ -320,7 +346,7 @@
                   //   durationBox.innerText = `${t.toFixed(2)}/${
                   //     videoStream.duration
                   //   }`;
-                  console.log(`start = ${start}`);
+                  //   console.log(`start = ${start}`);
                   seeker.value = start * 10;
                 }
               }
@@ -356,19 +382,19 @@
                 const timePlayed = frameTime + frameDuration;
                 const sourceFPS = framesPlayed / timePlayed;
 
-                console.log(
-                  `frameTime = ${frameTime.toFixed(
-                    2
-                  )}, previousFrameTime = ${previousFrameTime.toFixed(
-                    2
-                  )}, frameDuration = ${frameDuration.toFixed(
-                    2
-                  )} timePlayed = ${timePlayed.toFixed(
-                    2
-                  )}, framesPlayed = ${framesPlayed.toFixed(
-                    2
-                  )}, sourceFPS = ${sourceFPS.toFixed(2)}`
-                );
+                // console.log(
+                //   `frameTime = ${frameTime.toFixed(
+                //     2
+                //   )}, previousFrameTime = ${previousFrameTime.toFixed(
+                //     2
+                //   )}, frameDuration = ${frameDuration.toFixed(
+                //     2
+                //   )} timePlayed = ${timePlayed.toFixed(
+                //     2
+                //   )}, framesPlayed = ${framesPlayed.toFixed(
+                //     2
+                //   )}, sourceFPS = ${sourceFPS.toFixed(2)}`
+                // );
 
                 // Duration of track in seconds, frame count
                 const xrt =
@@ -377,8 +403,10 @@
                   (last.end - first.start);
 
                 statsBox.innerText = `
-                ${width} x ${height} @ ${sourceFPS.toFixed(2)} FPS
-                ${fps.toFixed(2)} FPS Playback \n${xrt.toFixed(2)}x Real-time`;
+                      ${width} x ${height} @ ${sourceFPS.toFixed(2)} FPS
+                      ${fps.toFixed(2)} FPS Playback \n${xrt.toFixed(
+                  2
+                )}x Real-time`;
               }
             }
 
@@ -401,6 +429,52 @@
           alert(ex + "");
         }
       })();
+
+      async function initDecoder(libav, name, codecpar) {
+        var codec, ret;
+        if (typeof name === "string") {
+          codec = await libav.avcodec_find_decoder_by_name(name);
+        } else {
+          codec = await libav.avcodec_find_decoder(name);
+        }
+        if (codec === 0) {
+          throw new Error("Codec not found");
+        }
+
+        var c = await libav.avcodec_alloc_context3(codec);
+        if (c === 0) {
+          throw new Error("Could not allocate audio codec context");
+        }
+
+        await libav.AVCodecContext_lowres_s(c, 2);
+
+        var codecid = await libav.AVCodecContext_codec_id(c);
+
+        if (codecpar) {
+          ret = await libav.avcodec_parameters_to_context(c, codecpar);
+          if (ret < 0)
+            throw new Error(
+              "Could not set codec parameters: " + (await libav.ff_error(ret))
+            );
+        }
+        // if it is not set, use the copy.
+        if ((await libav.AVCodecContext_codec_id(c)) === 0)
+          await libav.AVCodecContext_codec_id_s(c, codecid);
+
+        ret = await libav.avcodec_open2(c, codec, 0);
+        if (ret < 0)
+          throw new Error(
+            "Could not open codec: " + (await libav.ff_error(ret))
+          );
+
+        var pkt = await libav.av_packet_alloc();
+        if (pkt === 0) throw new Error("Could not allocate packet");
+
+        var frame = await libav.av_frame_alloc();
+        if (frame === 0) throw new Error("Could not allocate frame");
+
+        return [codec, c, pkt, frame];
+      }
     </script>
   </body>
 </html>

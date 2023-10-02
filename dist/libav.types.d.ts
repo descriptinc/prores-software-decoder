@@ -227,6 +227,7 @@ export interface AVCodecContextProps {
     qmax?: number;
     qmin?: number;
     width?: number;
+    lowres?: number;
 }
 
 export interface LibAV {
@@ -1429,6 +1430,8 @@ AVCodecContext_qmin(ptr: number): Promise<number>;
 AVCodecContext_qmin_s(ptr: number, val: number): Promise<void>;
 AVCodecContext_width(ptr: number): Promise<number>;
 AVCodecContext_width_s(ptr: number, val: number): Promise<void>;
+AVCodecContext_lowres(ptr: number): Promise<number>;
+AVCodecContext_lowres_s(ptr: number, val: number): Promise<void>;
 AVCodecDescriptor_id(ptr: number): Promise<number>;
 AVCodecDescriptor_id_s(ptr: number, val: number): Promise<void>;
 AVCodecDescriptor_long_name(ptr: number): Promise<number>;
@@ -3278,6 +3281,8 @@ AVCodecContext_qmin_sync(ptr: number): number;
 AVCodecContext_qmin_s_sync(ptr: number, val: number): void;
 AVCodecContext_width_sync(ptr: number): number;
 AVCodecContext_width_s_sync(ptr: number, val: number): void;
+AVCodecContext_lowres_sync(ptr: number): number;
+AVCodecContext_lowres_s_sync(ptr: number, val: number): void;
 AVCodecDescriptor_id_sync(ptr: number): number;
 AVCodecDescriptor_id_s_sync(ptr: number, val: number): void;
 AVCodecDescriptor_long_name_sync(ptr: number): number;
