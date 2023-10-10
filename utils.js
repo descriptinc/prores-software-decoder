@@ -55,10 +55,10 @@ async function initLibAV() {
   const version = "4.4.9";
   const variant = "descript-p3";
   // Load libav.js
-  LibAV = { base: "../dist" };
+  LibAV = { base: "./../dist" };
   await new Promise((res) => {
     const scr = dce("script");
-    scr.src = `../dist/libav-${version}-${variant}.js?${Math.random()}`;
+    scr.src = `./../dist/libav-${version}-${variant}.js?${Math.random()}`;
     scr.onload = res;
     scr.onerror = () => {
       alert("Failed to load variant!");

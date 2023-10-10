@@ -93,34 +93,6 @@ async function main() {
       }px`;
       main.appendChild(canvas);
       const cctx = canvas.getContext("2d");
-      const seeker = dce("input");
-      seeker.type = "range";
-      seeker.min = 0;
-      seeker.max = Math.ceil(videoStream.duration * 10);
-      seeker.style.visibility = "hidden";
-      main.appendChild(seeker);
-      let seekerWakeup = null;
-
-      // Prepare to seek
-      let seeked = false;
-      seeker.oninput = async () => {
-        let frameCounter = 0;
-        const ts =
-          ((seeker.value / 10) * videoStream.time_base_den) /
-          videoStream.time_base_num;
-        const ret = await libav.avformat_seek_file_max(
-          fmt_ctx,
-          videoIdx,
-          ts,
-          0
-        );
-        seeked = true;
-        if (seekerWakeup) {
-          const w = seekerWakeup;
-          seekerWakeup = null;
-          w();
-        }
-      };
 
       // Initialize the decoder
       const [, codecContextPtr, pkt, frame] = await initDecoder(
@@ -169,7 +141,7 @@ async function main() {
         console.log(
           `------------------------ Frame ${frameCounter} ------------------------`
         );
-        console.time("loop");
+        console.time("total");
         // Read some packets
         console.time("ff_read_multi");
         const [res, packets] = await libav.ff_read_multi(fmt_ctx, pkt, null, {
@@ -183,7 +155,6 @@ async function main() {
         const vPackets = packets[videoIdx];
         for (let vIdx = 0; vPackets && vIdx < vPackets.length; vIdx++) {
           const vPacket = vPackets[vIdx];
-          if (seeked) break;
 
           const stat = {
             start: performance.now() / 1000,
@@ -307,7 +278,6 @@ async function main() {
             //     videoStream.duration
             //   }`;
             //   console.log(`start = ${start}`);
-            seeker.value = start * 10;
           }
 
           // And figure out stats
@@ -371,18 +341,10 @@ async function main() {
           }
         }
 
-        console.timeEnd("loop");
-
-        if (seeked) {
-          seeked = false;
-          continue;
-        }
+        console.timeEnd("total");
 
         if (res === libav.AVERROR_EOF) {
-          // Await seeking elsewhere
-          await new Promise((res) => {
-            seekerWakeup = res;
-          });
+          return;
         }
       }
     }
