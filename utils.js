@@ -52,7 +52,7 @@ async function initDecoder(libav, name, codecpar) {
 }
 
 async function initLibAV() {
-  const version = "4.4.9";
+  const version = "4.5.6.5";
   const variant = "descript-p3";
   // Load libav.js
   LibAV = { base: "./../dist" };

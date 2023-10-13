@@ -227,7 +227,6 @@ export interface AVCodecContextProps {
     qmax?: number;
     qmin?: number;
     width?: number;
-    lowres?: number;
 }
 
 export interface LibAV {
@@ -1430,8 +1429,6 @@ AVCodecContext_qmin(ptr: number): Promise<number>;
 AVCodecContext_qmin_s(ptr: number, val: number): Promise<void>;
 AVCodecContext_width(ptr: number): Promise<number>;
 AVCodecContext_width_s(ptr: number, val: number): Promise<void>;
-AVCodecContext_lowres(ptr: number): Promise<number>;
-AVCodecContext_lowres_s(ptr: number, val: number): Promise<void>;
 AVCodecDescriptor_id(ptr: number): Promise<number>;
 AVCodecDescriptor_id_s(ptr: number, val: number): Promise<void>;
 AVCodecDescriptor_long_name(ptr: number): Promise<number>;
@@ -1570,6 +1567,11 @@ writeFile(name: string, content: Uint8Array): Promise<Uint8Array>;
  */
 unlink(name: string): Promise<void>;
 /**
+ * Unmount a mounted filesystem.
+ * @param mountpoint  Path where the filesystem is mounted
+ */
+unmount(mountpoint: string): Promise<void>;
+/**
  * Make a lazy file. Direct link to createLazyFile.
  */
 createLazyFile(
@@ -1612,6 +1614,13 @@ mkwriterdev(name: string, mode?: number): Promise<void>;
  * @param mode  Unix permissions
  */
 mkstreamwriterdev(name: string, mode?: number): Promise<void>;
+/**
+ * Mount a writer *filesystem*. All files created in this filesystem will be
+ * redirected as writers. The directory will be created for you if it doesn't
+ * already exist, but it may already exist.
+ * @param mountpoint  Directory to mount as a writer filesystem
+ */
+mountwriterfs(mountpoint: string): Promise<void>;
 /**
  * Make a workerfs file. Returns the filename that it's mounted to.
  * @param name  Filename to use.
@@ -1790,7 +1799,7 @@ ff_read_multi(
     fmt_ctx: number, pkt: number, devfile?: string, opts?: {
         limit?: number, // OUTPUT limit, in bytes
         devLimit?: number, // INPUT limit, in bytes (don't read if less than this much data is available)
-        unify: boolean // If true, unify the packets into a single stream (called 0), so that the output is in the same order as the input
+        unify?: boolean // If true, unify the packets into a single stream (called 0), so that the output is in the same order as the input
     }
 ): Promise<[number, Record<number, Packet[]>]>;
 /**
@@ -3281,8 +3290,6 @@ AVCodecContext_qmin_sync(ptr: number): number;
 AVCodecContext_qmin_s_sync(ptr: number, val: number): void;
 AVCodecContext_width_sync(ptr: number): number;
 AVCodecContext_width_s_sync(ptr: number, val: number): void;
-AVCodecContext_lowres_sync(ptr: number): number;
-AVCodecContext_lowres_s_sync(ptr: number, val: number): void;
 AVCodecDescriptor_id_sync(ptr: number): number;
 AVCodecDescriptor_id_s_sync(ptr: number, val: number): void;
 AVCodecDescriptor_long_name_sync(ptr: number): number;
@@ -3421,6 +3428,11 @@ writeFile_sync(name: string, content: Uint8Array): Uint8Array;
  */
 unlink_sync(name: string): void;
 /**
+ * Unmount a mounted filesystem.
+ * @param mountpoint  Path where the filesystem is mounted
+ */
+unmount_sync(mountpoint: string): void;
+/**
  * Make a lazy file. Direct link to createLazyFile.
  */
 createLazyFile_sync(
@@ -3463,6 +3475,13 @@ mkwriterdev_sync(name: string, mode?: number): void;
  * @param mode  Unix permissions
  */
 mkstreamwriterdev_sync(name: string, mode?: number): void;
+/**
+ * Mount a writer *filesystem*. All files created in this filesystem will be
+ * redirected as writers. The directory will be created for you if it doesn't
+ * already exist, but it may already exist.
+ * @param mountpoint  Directory to mount as a writer filesystem
+ */
+mountwriterfs_sync(mountpoint: string): void;
 /**
  * Make a workerfs file. Returns the filename that it's mounted to.
  * @param name  Filename to use.
@@ -3641,7 +3660,7 @@ ff_read_multi_sync(
     fmt_ctx: number, pkt: number, devfile?: string, opts?: {
         limit?: number, // OUTPUT limit, in bytes
         devLimit?: number, // INPUT limit, in bytes (don't read if less than this much data is available)
-        unify: boolean // If true, unify the packets into a single stream (called 0), so that the output is in the same order as the input
+        unify?: boolean // If true, unify the packets into a single stream (called 0), so that the output is in the same order as the input
     }
 ): [number, Record<number, Packet[]>] | Promise<[number, Record<number, Packet[]>]>;
 /**
@@ -3787,6 +3806,16 @@ export interface LibAVOpts {
      * URL base from which to load workers and modules.
      */
     base?: string;
+
+    /**
+     * The full URL from which to load the .wasm file.
+     */
+    wasmurl?: string;
+
+    /**
+     * The variant to load (instead of whichever variant was compiled)
+     */
+    variant?: string;
 }
 
 export interface LibAVWrapper {
@@ -3794,6 +3823,16 @@ export interface LibAVWrapper {
      * URL base from which load workers and modules.
      */
     base: string;
+
+    /**
+     * The full URL from which to load the .wasm file.
+     */
+    wasmurl?: string;
+
+    /**
+     * The variant to load (instead of whichever variant was compiled)
+     */
+    variant?: string;
 
     /**
      * Create a LibAV instance.
