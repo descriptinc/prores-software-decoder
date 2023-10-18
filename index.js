@@ -66,6 +66,11 @@ async function main() {
       const height = await libav.AVCodecParameters_height(codecparPtr);
       //   console.log(`${width}x${height}`);
       //   console.log(videoStream);
+      const { scaledWidth, scaledHeight } = limitPlaybackResolution(
+        width,
+        height,
+        width * resolutionMultipler * height * resolutionMultipler
+      );
 
       // Set up the "player"
       main.innerHTML = "";
@@ -83,14 +88,10 @@ async function main() {
       main.appendChild(renderChk);
       const canvas = dce("canvas");
       canvas.style.display = "block";
-      canvas.width = width * resolutionMultipler;
-      canvas.height = height * resolutionMultipler;
-      canvas.style.width = `${
-        (width * resolutionMultipler) / devicePixelRatio
-      }px`;
-      canvas.style.height = `${
-        (height * resolutionMultipler) / devicePixelRatio
-      }px`;
+      canvas.width = scaledWidth;
+      canvas.height = scaledHeight;
+      canvas.style.width = `${canvas.width / devicePixelRatio}px`;
+      canvas.style.height = `${canvas.height / devicePixelRatio}px`;
       main.appendChild(canvas);
       const cctx = canvas.getContext("2d");
 
@@ -112,10 +113,10 @@ async function main() {
       // Prepare for stats
       const stats = [];
 
-      const id = cctx.createImageData(
-        width * resolutionMultipler,
-        height * resolutionMultipler
-      );
+      // const id = cctx.createImageData(
+      //   width * resolutionMultipler,
+      //   height * resolutionMultipler
+      // );
 
       let buffersrc_ctx, buffersink_ctx;
       if (techniquePicker.value === "format_filter") {
@@ -123,6 +124,8 @@ async function main() {
           libav,
           width,
           height,
+          canvas.width,
+          canvas.height,
           "yuv422p10le",
           // "1/25"
           "1/12800"
@@ -168,32 +171,21 @@ async function main() {
             stats.shift();
           }
 
-          let frames;
-
           // Decode it
-          console.time("ff_decode_multi");
-          const decodedFrames = await libav.ff_decode_multi(
+          console.time("ff_decode_filter_multi");
+          const frames = await libav.ff_decode_filter_multi(
             codecContextPtr,
+            buffersrc_ctx,
+            buffersink_ctx,
             pkt,
             frame,
             [vPacket],
-            res === libav.AVERROR_EOF && vIdx === vPackets.length - 1
+            {
+              fin: res === libav.AVERROR_EOF && vIdx === vPackets.length - 1,
+              copyoutFrame: "ImageData",
+            }
           );
-          console.timeEnd("ff_decode_multi");
-
-          if (techniquePicker.value === "sws_scale_frame") {
-            frames = decodedFrames;
-          } else {
-            console.time("ff_filter_multi");
-            frames = await libav.ff_filter_multi(
-              buffersrc_ctx,
-              buffersink_ctx,
-              frame,
-              decodedFrames,
-              res === libav.AVERROR_EOF && vIdx === vPackets.length - 1
-            );
-            console.timeEnd("ff_filter_multi");
-          }
+          console.timeEnd("ff_decode_filter_multi");
 
           // Display any frames here
 
@@ -201,74 +193,17 @@ async function main() {
             frameCounter++;
             const pts = frame.pts;
 
-            if (techniquePicker.value === "sws_scale_frame") {
-              // Maybe initialize the scaler
-              if (
-                inW !== frame.width ||
-                inH !== frame.height ||
-                inF !== frame.format
-              ) {
-                if (sctx !== null) await libav.sws_freeContext(sctx);
-
-                inW = frame.width;
-                inH = frame.height;
-                inF = frame.format;
-                sctx = await libav.sws_getContext(
-                  inW,
-                  inH,
-                  inF,
-                  width * resolutionMultipler,
-                  height * resolutionMultipler,
-                  targetPixFormat,
-                  2,
-                  0,
-                  0,
-                  0
-                );
-                // console.log("sws_getContext");
-              }
-
-              // Scale
-              console.time("ff_copyin_frame");
-              await libav.ff_copyin_frame(sinFrame, frame);
-              console.timeEnd("ff_copyin_frame");
-
-              console.time("sws_scale_frame");
-              await libav.sws_scale_frame(sctx, soutFrame, sinFrame);
-              console.timeEnd("sws_scale_frame");
-              console.time("ff_copyout_frame");
-              frame = await libav.ff_copyout_frame(soutFrame);
-              console.timeEnd("ff_copyout_frame");
-            }
-
-            // Convert from libav planes to ImageData
-            console.time("convert libav planes to ImageData");
-            console.time("convert loop");
-            {
-              let idx = 0;
-              const plane = frame.data[0];
-              for (const line of plane) {
-                id.data.set(line, idx);
-                idx += frame.width * 4;
-              }
-            }
-            console.timeEnd("convert loop");
-            console.time("id.data.set");
-            id.data.set(frame.data[0]);
-            console.timeEnd("id.data.set");
-            console.timeEnd("convert libav planes to ImageData");
-
             // Display it
             console.time("createImageBitmap");
-            const ib = await createImageBitmap(id);
+            const ib = await createImageBitmap(frame);
             console.timeEnd("createImageBitmap");
 
             console.time("clearRect");
-            cctx.clearRect(0, 0, width, height);
+            cctx.clearRect(0, 0, canvas.width, canvas.height);
             console.timeEnd("clearRect");
 
             console.time("drawImage");
-            cctx.drawImage(ib, 0, 0, width, height);
+            cctx.drawImage(ib, 0, 0, canvas.width, canvas.height);
             console.timeEnd("drawImage");
 
             // And show it
@@ -332,8 +267,8 @@ async function main() {
 
             statsBox.innerText = `
                   ${width} x ${height} @ ${sourceFPS.toFixed(2)} FPS
-                  ${Math.floor(width * resolutionMultipler)} x ${Math.floor(
-              height * resolutionMultipler
+                  ${Math.floor(canvas.width)} x ${Math.floor(
+              canvas.height
             )} Playback Resolution
                   ${fps.toFixed(2)} FPS Playback \n${xrt.toFixed(
               2
@@ -351,4 +286,28 @@ async function main() {
   } catch (ex) {
     alert(ex + "");
   }
+}
+
+function limitPlaybackResolution(width, height, maxPixelCount) {
+  const pixelCount = width * height;
+  if (pixelCount <= maxPixelCount) {
+    return { scaledWidth: width, scaledHeight: height };
+  }
+  const scale = Math.sqrt(maxPixelCount / pixelCount);
+  let scaledWidth = Math.ceil(width * scale);
+  let scaledHeight = Math.ceil(height * scale);
+
+  // Also ensure width is a multiple of 16
+  if (scaledWidth % 16) {
+    const newScaledWidth = Math.ceil(scaledWidth / 16) * 16;
+    scaledHeight = Math.ceil(
+      scaledHeight * Math.sqrt(newScaledWidth / scaledWidth)
+    );
+    scaledWidth = newScaledWidth;
+  }
+
+  return {
+    scaledWidth,
+    scaledHeight,
+  };
 }

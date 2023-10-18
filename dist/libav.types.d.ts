@@ -305,6 +305,14 @@ av_opt_set_int_list_js(a0: number,a1: string,a2: number,a3: number,a4: number,a5
  */
 av_frame_alloc(): Promise<number>;
 /**
+ * Create a new frame that references the same data as src.
+ *
+ * This is a shortcut for av_frame_alloc()+av_frame_ref().
+ *
+ * @return newly created AVFrame on success, NULL on error.
+ */
+av_frame_clone(src: number,a1: number): Promise<number>;
+/**
  * Free the frame and any dynamically allocated objects in it,
  * e.g. extended_data. If the frame is reference counted, it will be
  * unreferenced first.
@@ -350,6 +358,22 @@ av_frame_get_buffer(frame: number,align: number): Promise<number>;
  */
 av_frame_make_writable(frame: number): Promise<number>;
 /**
+ * Set up a new reference to the data described by the source frame.
+ *
+ * Copy frame properties from src to dst and create a new reference for each
+ * AVBufferRef from src.
+ *
+ * If src is not reference counted, new buffers are allocated and the data is
+ * copied.
+ *
+ * @warning: dst MUST have been either unreferenced with av_frame_unref(dst),
+ *           or newly allocated with av_frame_alloc() before calling this
+ *           function, or undefined behavior will occur.
+ *
+ * @return 0 on success, a negative AVERROR on error
+ */
+av_frame_ref(dst: number,src: number): Promise<number>;
+/**
  * Unreference all the buffers referenced by frame and reset the frame fields.
  */
 av_frame_unref(frame: number): Promise<void>;
@@ -365,6 +389,17 @@ av_frame_unref(frame: number): Promise<void>;
  * @see av_new_packet
  */
 av_packet_alloc(): Promise<number>;
+/**
+ * Create a new packet that references the same data as src.
+ *
+ * This is a shortcut for av_packet_alloc()+av_packet_ref().
+ *
+ * @return newly created AVPacket on success, NULL on error.
+ *
+ * @see av_packet_alloc
+ * @see av_packet_ref
+ */
+av_packet_clone(src: number): Promise<number>;
 /**
  * Free the packet, if the packet is reference counted, it will be
  * unreferenced first.
@@ -382,6 +417,24 @@ av_packet_free(pkt: number): Promise<void>;
  * @return pointer to fresh allocated data or NULL otherwise
  */
 av_packet_new_side_data(pkt: number,type: number,size: number): Promise<number>;
+/**
+ * Setup a new reference to the data described by a given packet
+ *
+ * If src is reference-counted, setup dst as a new reference to the
+ * buffer in src. Otherwise allocate a new buffer in dst and copy the
+ * data from src into it.
+ *
+ * All the other fields are copied from src.
+ *
+ * @see av_packet_unref
+ *
+ * @param dst Destination packet. Will be completely overwritten.
+ * @param src Source packet
+ *
+ * @return 0 on success, a negative AVERROR on error. On error, dst
+ *         will be blank (as if returned by av_packet_alloc()).
+ */
+av_packet_ref(dst: number,src: number): Promise<number>;
 /**
  * Convert valid timing fields (timestamps / durations) in a packet from one
  * timebase to another. Timestamps with unknown values (AV_NOPTS_VALUE) will be
@@ -1735,7 +1788,8 @@ ff_decode_multi(
     ctx: number, pkt: number, frame: number, inPackets: Packet[],
     config?: boolean | {
         fin?: boolean,
-        ignoreErrors?: boolean
+        ignoreErrors?: boolean,
+        copyoutFrame?: string
     }
 ): Promise<Frame[]>;
 /**
@@ -1799,7 +1853,8 @@ ff_read_multi(
     fmt_ctx: number, pkt: number, devfile?: string, opts?: {
         limit?: number, // OUTPUT limit, in bytes
         devLimit?: number, // INPUT limit, in bytes (don't read if less than this much data is available)
-        unify?: boolean // If true, unify the packets into a single stream (called 0), so that the output is in the same order as the input
+        unify?: boolean, // If true, unify the packets into a single stream (called 0), so that the output is in the same order as the input
+        copyoutPacket?: string // Version of ff_copyout_packet to use
     }
 ): Promise<[number, Record<number, Packet[]>]>;
 /**
@@ -1841,21 +1896,73 @@ ff_init_filter_graph(
  * @param framePtr  AVFrame
  * @param inFrames  Input frames, either as an array of frames or with frames
  *                  per input
- * @param fin  Indicate end-of-stream(s)
+ * @param config  Options. May be "true" to indicate end of stream.
  */
 ff_filter_multi(
     srcs: number, buffersink_ctx: number, framePtr: number,
-    inFrames: Frame[], fin?: boolean
+    inFrames: Frame[], config?: boolean | {
+        fin?: boolean,
+        copyoutFrame?: string
+    }
 ): Promise<Frame[]>;
 ff_filter_multi(
     srcs: number[], buffersink_ctx: number, framePtr: number,
-    inFrames: Frame[][], fin?: boolean[]
+    inFrames: Frame[][], config?: boolean[] | {
+        fin?: boolean,
+        copyoutFrame?: string
+    }[]
+): Promise<Frame[]>;
+/**
+ * Decode and filter frames. Just a combination of ff_decode_multi and
+ * ff_filter_multi that's all done on the libav.js side.
+ * @param ctx  AVCodecContext
+ * @param buffersrc_ctx  AVFilterContext, input
+ * @param buffersink_ctx  AVFilterContext, output
+ * @param pkt  AVPacket
+ * @param frame  AVFrame
+ * @param inPackets  Incoming packets to decode and filter
+ * @param config  Decoding and filtering options. May be "true" to indicate end
+ *                of stream.
+ */
+ff_decode_filter_multi(
+    ctx: number, buffersrc_ctx: number, buffersink_ctx: number, pkt: number,
+    frame: number, inPackets: Packet[],
+    config?: boolean | {
+        fin?: boolean,
+        ignoreErrors?: boolean,
+        copyoutFrame?: string
+    }
 ): Promise<Frame[]>;
 /**
  * Copy out a frame.
  * @param frame  AVFrame
  */
 ff_copyout_frame(frame: number): Promise<Frame>;
+/**
+ * Copy out a video frame. `ff_copyout_frame` will copy out a video frame if a
+ * video frame is found, but this may be faster if you know it's a video frame.
+ * @param frame  AVFrame
+ */
+ff_copyout_frame_video(frame: number): Promise<Frame>;
+/**
+ * Get the size of a packed video frame in its native format.
+ * @param frame  AVFrame
+ */
+ff_frame_video_packed_size(frame: number): Promise<Frame>;
+/**
+ * Copy out a video frame, as a single packed Uint8Array.
+ * @param frame  AVFrame
+ */
+ff_copyout_frame_video_packed(frame: number): Promise<Frame>;
+/**
+ * Copy out a video frame as an ImageData. The video frame *must* be RGBA for
+ * this to work as expected (though some ImageData will be returned for any
+ * frame).
+ * @param frame  AVFrame
+ */
+ff_copyout_frame_video_imagedata(
+    frame: number
+): Promise<ImageData>;
 /**
  * Copy in a frame.
  * @param framePtr  AVFrame
@@ -1867,6 +1974,11 @@ ff_copyin_frame(framePtr: number, frame: Frame): Promise<void>;
  * @param pkt  AVPacket
  */
 ff_copyout_packet(pkt: number): Promise<Packet>;
+/**
+ * Copy "out" a packet by just copying its data into a new AVPacket.
+ * @param pkt  AVPacket
+ */
+ff_copyout_packet_ptr(pkt: number): Promise<number>;
 /**
  * Copy in a packet.
  * @param pktPtr  AVPacket
@@ -2166,6 +2278,14 @@ av_opt_set_int_list_js_sync(a0: number,a1: string,a2: number,a3: number,a4: numb
  */
 av_frame_alloc_sync(): number;
 /**
+ * Create a new frame that references the same data as src.
+ *
+ * This is a shortcut for av_frame_alloc()+av_frame_ref().
+ *
+ * @return newly created AVFrame on success, NULL on error.
+ */
+av_frame_clone_sync(src: number,a1: number): number;
+/**
  * Free the frame and any dynamically allocated objects in it,
  * e.g. extended_data. If the frame is reference counted, it will be
  * unreferenced first.
@@ -2211,6 +2331,22 @@ av_frame_get_buffer_sync(frame: number,align: number): number;
  */
 av_frame_make_writable_sync(frame: number): number;
 /**
+ * Set up a new reference to the data described by the source frame.
+ *
+ * Copy frame properties from src to dst and create a new reference for each
+ * AVBufferRef from src.
+ *
+ * If src is not reference counted, new buffers are allocated and the data is
+ * copied.
+ *
+ * @warning: dst MUST have been either unreferenced with av_frame_unref(dst),
+ *           or newly allocated with av_frame_alloc() before calling this
+ *           function, or undefined behavior will occur.
+ *
+ * @return 0 on success, a negative AVERROR on error
+ */
+av_frame_ref_sync(dst: number,src: number): number;
+/**
  * Unreference all the buffers referenced by frame and reset the frame fields.
  */
 av_frame_unref_sync(frame: number): void;
@@ -2226,6 +2362,17 @@ av_frame_unref_sync(frame: number): void;
  * @see av_new_packet
  */
 av_packet_alloc_sync(): number;
+/**
+ * Create a new packet that references the same data as src.
+ *
+ * This is a shortcut for av_packet_alloc()+av_packet_ref().
+ *
+ * @return newly created AVPacket on success, NULL on error.
+ *
+ * @see av_packet_alloc
+ * @see av_packet_ref
+ */
+av_packet_clone_sync(src: number): number;
 /**
  * Free the packet, if the packet is reference counted, it will be
  * unreferenced first.
@@ -2243,6 +2390,24 @@ av_packet_free_sync(pkt: number): void;
  * @return pointer to fresh allocated data or NULL otherwise
  */
 av_packet_new_side_data_sync(pkt: number,type: number,size: number): number;
+/**
+ * Setup a new reference to the data described by a given packet
+ *
+ * If src is reference-counted, setup dst as a new reference to the
+ * buffer in src. Otherwise allocate a new buffer in dst and copy the
+ * data from src into it.
+ *
+ * All the other fields are copied from src.
+ *
+ * @see av_packet_unref
+ *
+ * @param dst Destination packet. Will be completely overwritten.
+ * @param src Source packet
+ *
+ * @return 0 on success, a negative AVERROR on error. On error, dst
+ *         will be blank (as if returned by av_packet_alloc()).
+ */
+av_packet_ref_sync(dst: number,src: number): number;
 /**
  * Convert valid timing fields (timestamps / durations) in a packet from one
  * timebase to another. Timestamps with unknown values (AV_NOPTS_VALUE) will be
@@ -3596,7 +3761,8 @@ ff_decode_multi_sync(
     ctx: number, pkt: number, frame: number, inPackets: Packet[],
     config?: boolean | {
         fin?: boolean,
-        ignoreErrors?: boolean
+        ignoreErrors?: boolean,
+        copyoutFrame?: string
     }
 ): Frame[];
 /**
@@ -3660,7 +3826,8 @@ ff_read_multi_sync(
     fmt_ctx: number, pkt: number, devfile?: string, opts?: {
         limit?: number, // OUTPUT limit, in bytes
         devLimit?: number, // INPUT limit, in bytes (don't read if less than this much data is available)
-        unify?: boolean // If true, unify the packets into a single stream (called 0), so that the output is in the same order as the input
+        unify?: boolean, // If true, unify the packets into a single stream (called 0), so that the output is in the same order as the input
+        copyoutPacket?: string // Version of ff_copyout_packet to use
     }
 ): [number, Record<number, Packet[]>] | Promise<[number, Record<number, Packet[]>]>;
 /**
@@ -3702,21 +3869,73 @@ ff_init_filter_graph_sync(
  * @param framePtr  AVFrame
  * @param inFrames  Input frames, either as an array of frames or with frames
  *                  per input
- * @param fin  Indicate end-of-stream(s)
+ * @param config  Options. May be "true" to indicate end of stream.
  */
 ff_filter_multi_sync(
     srcs: number, buffersink_ctx: number, framePtr: number,
-    inFrames: Frame[], fin?: boolean
+    inFrames: Frame[], config?: boolean | {
+        fin?: boolean,
+        copyoutFrame?: string
+    }
 ): Frame[];
 ff_filter_multi_sync(
     srcs: number[], buffersink_ctx: number, framePtr: number,
-    inFrames: Frame[][], fin?: boolean[]
+    inFrames: Frame[][], config?: boolean[] | {
+        fin?: boolean,
+        copyoutFrame?: string
+    }[]
+): Frame[];
+/**
+ * Decode and filter frames. Just a combination of ff_decode_multi and
+ * ff_filter_multi that's all done on the libav.js side.
+ * @param ctx  AVCodecContext
+ * @param buffersrc_ctx  AVFilterContext, input
+ * @param buffersink_ctx  AVFilterContext, output
+ * @param pkt  AVPacket
+ * @param frame  AVFrame
+ * @param inPackets  Incoming packets to decode and filter
+ * @param config  Decoding and filtering options. May be "true" to indicate end
+ *                of stream.
+ */
+ff_decode_filter_multi_sync(
+    ctx: number, buffersrc_ctx: number, buffersink_ctx: number, pkt: number,
+    frame: number, inPackets: Packet[],
+    config?: boolean | {
+        fin?: boolean,
+        ignoreErrors?: boolean,
+        copyoutFrame?: string
+    }
 ): Frame[];
 /**
  * Copy out a frame.
  * @param frame  AVFrame
  */
 ff_copyout_frame_sync(frame: number): Frame;
+/**
+ * Copy out a video frame. `ff_copyout_frame` will copy out a video frame if a
+ * video frame is found, but this may be faster if you know it's a video frame.
+ * @param frame  AVFrame
+ */
+ff_copyout_frame_video_sync(frame: number): Frame;
+/**
+ * Get the size of a packed video frame in its native format.
+ * @param frame  AVFrame
+ */
+ff_frame_video_packed_size_sync(frame: number): Frame;
+/**
+ * Copy out a video frame, as a single packed Uint8Array.
+ * @param frame  AVFrame
+ */
+ff_copyout_frame_video_packed_sync(frame: number): Frame;
+/**
+ * Copy out a video frame as an ImageData. The video frame *must* be RGBA for
+ * this to work as expected (though some ImageData will be returned for any
+ * frame).
+ * @param frame  AVFrame
+ */
+ff_copyout_frame_video_imagedata_sync(
+    frame: number
+): ImageData;
 /**
  * Copy in a frame.
  * @param framePtr  AVFrame
@@ -3728,6 +3947,11 @@ ff_copyin_frame_sync(framePtr: number, frame: Frame): void;
  * @param pkt  AVPacket
  */
 ff_copyout_packet_sync(pkt: number): Packet;
+/**
+ * Copy "out" a packet by just copying its data into a new AVPacket.
+ * @param pkt  AVPacket
+ */
+ff_copyout_packet_ptr_sync(pkt: number): number;
 /**
  * Copy in a packet.
  * @param pktPtr  AVPacket

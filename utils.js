@@ -52,7 +52,7 @@ async function initDecoder(libav, name, codecpar) {
 }
 
 async function initLibAV() {
-  const version = "4.5.6.5";
+  const version = "4.5.6.8";
   const variant = "descript-p3";
   // Load libav.js
   LibAV = { base: "./dist" };
@@ -75,9 +75,18 @@ function dce(arg) {
 }
 
 // Define an asynchronous function to initialize filters using the libav library.
-async function init_filters(libav, width, height, pix_fmt, time_base) {
+async function init_filters(
+  libav,
+  sourceWidth,
+  sourceHeight,
+  outputWidth,
+  outputHeight,
+  pix_fmt,
+  time_base
+) {
   // Set the description for the filter graph. In this case, it's a format filter to convert frames to RGB24.
-  const filters_descr = "format=rgba";
+  // const filters_descr = `scale=${outputWidth}:${outputHeight},format=rgba`;
+  const filters_descr = `scale=${outputWidth}:${outputHeight},format=rgba`;
 
   // Get the buffer source filter from the libav library, which will be used to feed frames into the filter graph.
   const buffersrc = await libav.avfilter_get_by_name("buffer");
@@ -100,7 +109,7 @@ async function init_filters(libav, width, height, pix_fmt, time_base) {
   }
 
   // Create a buffer source context in the filter graph.
-  const description = `video_size=${width}x${height}:pix_fmt=${pix_fmt}:time_base=${time_base}`;
+  const description = `video_size=${sourceWidth}x${sourceHeight}:pix_fmt=${pix_fmt}:time_base=${time_base}`;
   console.log(description);
   const buffersrc_ctx = await libav.avfilter_graph_create_filter_js(
     buffersrc,
