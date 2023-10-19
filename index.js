@@ -149,6 +149,7 @@ async function main() {
         console.time("ff_read_multi");
         const [res, packets] = await libav.ff_read_multi(fmt_ctx, pkt, null, {
           limit: 1,
+          copyoutPacket: "ptr",
         });
         console.timeEnd("ff_read_multi");
 
@@ -158,6 +159,11 @@ async function main() {
         const vPackets = packets[videoIdx];
         for (let vIdx = 0; vPackets && vIdx < vPackets.length; vIdx++) {
           const vPacket = vPackets[vIdx];
+          const flags = await libav.AVPacket_flags(vPacket);
+          const pts = await libav.AVPacket_pts(vPacket);
+          const ptshi = await libav.AVPacket_ptshi(vPacket);
+          const duration = await libav.AVPacket_duration(vPacket);
+          const durationhi = await libav.AVPacket_durationhi(vPacket);
 
           const stat = {
             start: performance.now() / 1000,
@@ -219,7 +225,7 @@ async function main() {
           stat.end = performance.now() / 1000;
           stat.frames = frames.length;
           if (frames.length) {
-            stat.pts = frames[frames.length - 1].pts;
+            stat.pts = pts;
           } else {
             stats.pop();
           }
